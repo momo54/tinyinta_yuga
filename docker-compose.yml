@@ -1,0 +1,60 @@
+version: '3.8'
+services:
+  yb-master:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-master
+    command: ["bin/yb-master", "--master_addresses=yb-master:7100", "--rpc_bind_addresses=yb-master:7100", "--fs_data_dirs=/mnt/disk0"]
+    ports:
+      - "7001:7000"
+    environment:
+      SERVICE_7000_NAME: yb-master
+    volumes:
+      - yb-master-data:/mnt/disk0
+
+  yb-tserver-1:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-tserver-1
+    command: ["bin/yb-tserver", "--tserver_master_addrs=yb-master:7100", "--rpc_bind_addresses=yb-tserver-1:9100", "--fs_data_dirs=/mnt/disk0"]
+    ports:
+      - "9042:9042"
+      - "5433:5433"
+    depends_on:
+      - yb-master
+    environment:
+      SERVICE_5433_NAME: ysql
+    volumes:
+      - yb-tserver-1-data:/mnt/disk0
+      - ./init:/init
+
+  yb-tserver-2:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-tserver-2
+    command: ["bin/yb-tserver", "--tserver_master_addrs=yb-master:7100", "--rpc_bind_addresses=yb-tserver-2:9100", "--fs_data_dirs=/mnt/disk0"]
+    depends_on:
+      - yb-master
+    volumes:
+      - yb-tserver-2-data:/mnt/disk0
+
+  yb-tserver-3:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-tserver-3
+    command: ["bin/yb-tserver", "--tserver_master_addrs=yb-master:7100", "--rpc_bind_addresses=yb-tserver-3:9100", "--fs_data_dirs=/mnt/disk0"]
+    depends_on:
+      - yb-master
+    volumes:
+      - yb-tserver-3-data:/mnt/disk0
+
+  yb-client:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-client
+    entrypoint: ["/bin/sh", "-c", "sleep 20 && ysqlsh -h yb-tserver-1 -p 5433 -U yugabyte -f /init/schema.sql && ysqlsh -h yb-tserver-1 -p 5433 -U yugabyte -f /init/init.sql"]
+    depends_on:
+      - yb-tserver-1
+    volumes:
+      - ./init:/init
+
+volumes:
+  yb-master-data:
+  yb-tserver-1-data:
+  yb-tserver-2-data:
+  yb-tserver-3-data:
