@@ -1,0 +1,200 @@
+version: '3.8'
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - tidb-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - tidb-net
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+  pd0:
+    image: pingcap/pd:latest
+    command:
+      - --name=pd0
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd0:2379
+      - --advertise-peer-urls=http://pd0:2380
+      - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
+      - --data-dir=/data
+    ports:
+      - '2379:2379'
+    volumes:
+      - pd0-data:/data
+    networks:
+      - tidb-net
+
+  pd1:
+    image: pingcap/pd:latest
+    command:
+      - --name=pd1
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd1:2379
+      - --advertise-peer-urls=http://pd1:2380
+      - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
+      - --data-dir=/data
+    ports:
+      - '2380:2379'
+    volumes:
+      - pd1-data:/data
+    networks:
+      - tidb-net
+
+  pd2:
+    image: pingcap/pd:latest
+    command:
+      - --name=pd2
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd2:2379
+      - --advertise-peer-urls=http://pd2:2380
+      - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
+      - --data-dir=/data
+    ports:
+      - '2381:2379'
+    volumes:
+      - pd2-data:/data
+    networks:
+      - tidb-net
+
+  tikv0:
+    image: pingcap/tikv:latest
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv0:20160
+      - --pd=pd0:2379,pd1:2379,pd2:2379
+    depends_on:
+      - pd0
+      - pd1
+      - pd2
+    volumes:
+      - tikv0-data:/data
+    networks:
+      - tidb-net
+
+  tikv1:
+    image: pingcap/tikv:latest
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv1:20160
+      - --pd=pd0:2379,pd1:2379,pd2:2379
+    depends_on:
+      - pd0
+      - pd1
+      - pd2
+    volumes:
+      - tikv1-data:/data
+    networks:
+      - tidb-net
+
+  tikv2:
+    image: pingcap/tikv:latest
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv2:20160
+      - --pd=pd0:2379,pd1:2379,pd2:2379
+    depends_on:
+      - pd0
+      - pd1
+      - pd2
+    volumes:
+      - tikv2-data:/data
+    networks:
+      - tidb-net
+
+  tikv3:
+    image: pingcap/tikv:latest
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv3:20160
+      - --pd=pd0:2379,pd1:2379,pd2:2379
+    depends_on:
+      - pd0
+      - pd1
+      - pd2
+    volumes:
+      - tikv3-data:/data
+    networks:
+      - tidb-net
+
+  tikv4:
+    image: pingcap/tikv:latest
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv4:20160
+      - --pd=pd0:2379,pd1:2379,pd2:2379
+    depends_on:
+      - pd0
+      - pd1
+      - pd2
+    volumes:
+      - tikv4-data:/data
+    networks:
+      - tidb-net
+
+  tidb:
+    image: pingcap/tidb:latest
+    command:
+      - --store=tikv
+      - --path=pd0:2379,pd1:2379,pd2:2379
+      - --advertise-address=tidb
+      - --log-file=/logs/tidb.log
+    ports:
+      - '4000:4000'   # MySQL protocol
+    depends_on:
+      - pd0
+      - pd1
+      - pd2
+      - tikv0
+      - tikv1
+      - tikv2
+      - tikv3
+      - tikv4
+    volumes:
+      - tidb-logs:/logs
+    networks:
+      - tidb-net
+
+  init:
+    image: mysql:8
+    depends_on:
+      - tidb
+    volumes:
+      - ./init:/init:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until mysql -h tidb -P 4000 -u root -e 'SELECT 1' >/dev/null 2>&1; do echo 'waiting for TiDB...' && sleep 2; done; mysql -h tidb -P 4000 -u root < /init/schema.sql; mysql -h tidb -P 4000 -u root tinyinsta < /init/init.sql;
+    command: []
+    networks:
+      - tidb-net
+
+
+volumes:
+  pd0-data:
+  pd1-data:
+  pd2-data:
+  tikv0-data:
+  tikv1-data:
+  tikv2-data:
+  tikv3-data:
+  tikv4-data:
+  tidb-logs:
+
+networks:
+  tidb-net:
+    driver: bridge

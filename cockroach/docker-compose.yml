@@ -1,0 +1,98 @@
+version: '3.8'
+services:
+  cockroach4:
+    image: cockroachdb/cockroach:v23.1.11
+    command: start --insecure --join=cockroach1,cockroach2,cockroach3,cockroach4,cockroach5
+    hostname: cockroach4
+    container_name: cockroach4
+    ports:
+      - "26260:26257"
+      - "8083:8080"
+    volumes:
+      - cockroach4-data:/cockroach/cockroach-data
+    networks:
+      - cockroach-net
+
+  cockroach5:
+    image: cockroachdb/cockroach:v23.1.11
+    command: start --insecure --join=cockroach1,cockroach2,cockroach3,cockroach4,cockroach5
+    hostname: cockroach5
+    container_name: cockroach5
+    ports:
+      - "26261:26257"
+      - "8084:8080"
+    volumes:
+      - cockroach5-data:/cockroach/cockroach-data
+    networks:
+      - cockroach-net
+  cockroach1:
+    image: cockroachdb/cockroach:v23.1.11
+    command: start --insecure --join=cockroach1,cockroach2,cockroach3
+    hostname: cockroach1
+    container_name: cockroach1
+    ports:
+      - "26257:26257"
+      - "8080:8080"
+    volumes:
+      - cockroach1-data:/cockroach/cockroach-data
+    networks:
+      - cockroach-net
+
+  cockroach2:
+    image: cockroachdb/cockroach:v23.1.11
+    command: start --insecure --join=cockroach1,cockroach2,cockroach3
+    hostname: cockroach2
+    container_name: cockroach2
+    ports:
+      - "26258:26257"
+      - "8081:8080"
+    volumes:
+      - cockroach2-data:/cockroach/cockroach-data
+    networks:
+      - cockroach-net
+
+  cockroach3:
+    image: cockroachdb/cockroach:v23.1.11
+    command: start --insecure --join=cockroach1,cockroach2,cockroach3
+    hostname: cockroach3
+    container_name: cockroach3
+    ports:
+      - "26259:26257"
+      - "8082:8080"
+    volumes:
+      - cockroach3-data:/cockroach/cockroach-data
+    networks:
+      - cockroach-net
+
+  init-cluster:
+    image: cockroachdb/cockroach:v23.1.11
+    depends_on:
+      - cockroach1
+      - cockroach2
+      - cockroach3
+      - cockroach4
+      - cockroach5
+    entrypoint: ["/bin/bash", "-c", "sleep 10 && cockroach init --insecure --host=cockroach1"]
+    networks:
+      - cockroach-net
+
+  init-cockroach:
+    image: cockroachdb/cockroach:v23.1.11
+    depends_on:
+      - init-cluster
+    volumes:
+      - ./init:/init:ro
+    entrypoint: ["/bin/bash", "-c", "sleep 10 && HOST=cockroach1 bash /init/init.sh"]
+    networks:
+      - cockroach-net
+
+volumes:
+  cockroach1-data:
+  cockroach2-data:
+  cockroach3-data:
+  cockroach4-data:
+  cockroach5-data:
+
+networks:
+  cockroach-net:
+    driver: bridge

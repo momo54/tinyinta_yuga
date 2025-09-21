@@ -17,87 +17,57 @@ This project deploys a 3-node YugabyteDB cluster with a simple Instagram-like da
 - `init/init.sql` — contains only the data generation (users, follows, posts)
 
 Both scripts are run automatically in order by the `yb-client` service at startup.
+# tinyinsta (monorepo)
 
-## Prerequisites
-- Docker and Docker Compose installed
+Comparatif de deux bases NewSQL sur un mini use-case "Instagram":
 
-## Starting the Cluster
+- Hash-based sharding: YugabyteDB (YSQL) dans `yuga/`
+- Range-based sharding: TiDB (MySQL) dans `tidb/`
 
-1. Clone this repository or copy the files to your machine.
-2. Navigate to the project folder:
-   ```sh
-   cd tinyinsta_yuga
-   ```
-3. Start the cluster and initialize the database (recommended in detached mode to keep your terminal available):
-   ```sh
-   docker compose up -d
-   ```
-   This will start 1 master, 3 tservers, and a client to initialize the schema and data.
+## Choisir une variante
 
-   If you want to see the logs live, you can use:
-   ```sh
-   docker compose logs -f
-   ```
+- Yugabyte (hash): clés réparties via hash en tablettes (tablets). Très bon équilibrage automatique, fanout en lecture peut impliquer des scatter/gather si le schéma n’est pas pensé pour pruner.
+- TiDB (range): splits par plages (regions) avec auto-scaling. Accès séquentiels peuvent être très efficaces; attention au hotspot si clé monotone.
 
-## Accessing YugabyteDB Web UI
+## Lancer
 
-- **YugabyteDB Master UI:** [http://localhost:7001](http://localhost:7001)
+- `cd yuga && docker compose up -d` — UI Master: http://localhost:7001 — SQL: port 5433 (PostgreSQL/ysql)
+- `cd tidb && docker compose up -d` — SQL: port 4000 (MySQL)
 
-You can use this UI to monitor the cluster status and inspect tables.
+Chaque variante a son README dédié avec les scripts d’init, de requêtes et d’EXPLAIN.
 
-## Connecting to the Database
+## Points de comparaison rapides
 
+- API SQL: Yuga = PostgreSQL-compatible (YSQL), TiDB = MySQL-compatible
+- Sharding: Yuga = hash → tablets; TiDB = range → regions
+- Observabilité plan: Yuga → `EXPLAIN (ANALYZE, DIST)`; TiDB → `EXPLAIN ANALYZE`
+- Pattern d’agrégation global: éviter fanout-on-read massif, favoriser fanout-on-write ou schémas qui prunent par clé (ex: partition par user)
 
-Once the containers are running, connect to the database from inside the tserver container with:
-```sh
-docker exec -it yb-tserver-1 ysqlsh -h yb-tserver-1 -U yugabyte
+## Liens
+
+- Yugabyte: `./yuga/`
+- TiDB: `./tidb/`
+
+## Sharding demo (no-DB) 📊
+
+Un petit outil Python sans dépendances pour visualiser range vs hash, les hotspots en séquentiel, l’auto-split et le salage des clés.
+
+Chemin: `./sharding_demo/sharding_demo.py`
+
+Exemples:
+
+```bash
+# Comparer range vs hash (splits uniformes auto)
+python3 sharding_demo/sharding_demo.py --compare --shards 5 --n-keys 1000
+
+# Range avec auto-split (réduit le hotspot de la queue)
+python3 sharding_demo/sharding_demo.py --strategy range --n-keys 2000 --auto-split --progress-steps 6 --autosplit-threshold 0.35
+
+# Range avec salage (répartit les écritures séquentielles)
+python3 sharding_demo/sharding_demo.py --strategy range --n-keys 1000 --salt-buckets 16
 ```
 
-Or from your host (if you have `ysqlsh` installed):
-```sh
-ysqlsh -h localhost -p 5433 -U yugabyte
-```
+Notes:
+- Auto-split: coupe dynamiquement la dernière plage quand elle devient trop chaude.
+- Salt-buckets: change la clé logique en (salt, key) pour disperser les inserts; trade-off: scans par plage font du fan-out sur les buckets.
 
-> **Note:** The simple command `docker exec -it yb-tserver-1 ysqlsh -U yugabyte` may fail with "connection refused". Always specify `-h yb-tserver-1` as the host when connecting from inside the container.
-
-## Database Structure
-
-- `users`: users
-- `post`: posts
-- `follower_followee`: follow relationships
-
-The schema is in `init/schema.sql` and the data generation in `init/init.sql`.
-
-## Example Query
-
-To fetch the 50 most recent posts from a user and those they follow:
-
-```sql
--- Replace :userId with the desired user id
-SELECT p.*
-FROM post p
-WHERE p.user_id = :userId
-   OR p.user_id IN (
-        SELECT followee_id
-        FROM follower_followee
-        WHERE follower_id = :userId
-     )
-ORDER BY p.created_at DESC
-LIMIT 50;
-```
-
-## Stopping and Removing the Cluster
-
-```sh
-docker compose down -v
-```
-
-
-## Customization
-
-- Edit `init/schema.sql` to change the schema (tables, indexes, etc).
-- Edit `init/init.sql` to change the data generation (number of users, posts, etc).
-
----
-
-For questions, open an issue or contact the maintainer.

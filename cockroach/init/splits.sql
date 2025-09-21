@@ -1,0 +1,7 @@
+-- Optional manual splits/scatter for the 'post' table
+USE tinyinsta;
+ALTER TABLE post SPLIT AT VALUES (20000);
+ALTER TABLE post SPLIT AT VALUES (40000);
+ALTER TABLE post SPLIT AT VALUES (60000);
+ALTER TABLE post SPLIT AT VALUES (80000);
+ALTER TABLE post SCATTER;

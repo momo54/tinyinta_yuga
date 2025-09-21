@@ -1,4 +1,3 @@
-
 -- Data generation for tinyinsta_yuga
 -- Make sure to run schema.sql first!
 \set n_users 10000

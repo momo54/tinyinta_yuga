@@ -2,7 +2,6 @@
 # Requires: pip install cassandra-driver
 
 from cassandra.cluster import Cluster
-from cassandra.query import SimpleStatement
 import uuid
 import datetime
 
@@ -35,7 +34,7 @@ def create_post(author_id, image_path, description):
             """,
             (row.follower_id, post_id, author_id, image_path, description, created_at)
         )
-    # Optionally, insert into author's own timeline
+    # Author's own timeline
     session.execute(
         """
         INSERT INTO timeline (user_id, post_id, author_id, image_path, description, created_at)
