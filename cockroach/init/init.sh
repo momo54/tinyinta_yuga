@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Parameters with defaults
-USERS=${USERS:-5}
-POSTS_PER_USER=${POSTS_PER_USER:-10}
-FOLLOW_NEXT=${FOLLOW_NEXT:-2}   # each user follows next K users (wrap-around)
+USERS=${USERS:-100}
+POSTS_PER_USER=${POSTS_PER_USER:-100}
+FOLLOW_NEXT=${FOLLOW_NEXT:-20}   # each user follows next K users (wrap-around)
 
 HOST=${HOST:-cockroach1}
 DATABASE=tinyinsta

@@ -40,6 +40,11 @@ Auto-splitting (range only):
 
 ```bash
 python3 sharding_demo/sharding_demo.py --strategy range --shards 4 --n-keys 2000 --auto-split --progress-steps 6
+# Split au milieu (plus réaliste):
+python3 sharding_demo/sharding_demo.py --strategy range --shards 1 --n-keys 2000 --auto-split --autosplit-where middle
+
+# Visualiser la charge par nœud et le rebalance
+python3 sharding_demo/sharding_demo.py --strategy range --n-keys 1000 --auto-split --nodes 3 --rebalance-after-split --autosplit-where middle
 ```
 or compare both with auto-split enabled for range:
 ```bash
@@ -57,6 +62,9 @@ python3 sharding_demo/sharding_demo.py --compare --shards 5 --n-keys 1000 --auto
 - `--auto-split`: when using `range`, dynamically split the last range if it becomes a hotspot during sequential ingest progression
 - `--autosplit-threshold`: fraction (0<val<1) of inserted keys currently in the last range that triggers a split (default: 0.4)
 - `--salt-buckets`: when >0 with `--strategy range`, simulate salted keys (bucket = hash(key) % buckets). Shows per-range and per-bucket distributions.
+- `--autosplit-where`: `current` (split à la clé courante) ou `middle` (split au milieu de la dernière plage)
+- `--nodes`: avec `range+auto-split`, affiche une distribution par nœud (répartition des ranges)
+- `--rebalance-after-split`: avec `--nodes`, assigne la nouvelle sous-plage droite au nœud le moins chargé (visualise un rebalance simplifié)
 
 ## What it shows
 

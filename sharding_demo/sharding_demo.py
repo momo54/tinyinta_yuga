@@ -130,7 +130,7 @@ def simulate_progress(strategy: str, shards: int, n_keys: int, splits: List[int]
     return out
 
 
-def simulate_progress_range_autosplit(n_keys: int, initial_splits: List[int], steps: int = 5, threshold: float = 0.4) -> List[Tuple[int, List[int], List[int]]]:
+def simulate_progress_range_autosplit(n_keys: int, initial_splits: List[int], steps: int = 5, threshold: float = 0.4, autosplit_where: str = "current") -> List[Tuple[int, List[int], List[int]]]:
     """
     Simulate sequential ingest with dynamic auto-splitting for range sharding.
     - Starts with given split points.
@@ -167,18 +167,96 @@ def simulate_progress_range_autosplit(n_keys: int, initial_splits: List[int], st
         total_so_far = i
         if idx == last_idx and total_so_far > 1:
             if counts[last_idx] / total_so_far > threshold:
-                # Create a split at current key i (so left includes up to i)
-                # Only split if i is strictly greater than last split to avoid duplicates
-                if not splits or i > splits[-1]:
-                    splits.append(i)
-                    # Keep splits sorted (monotonic increasing here)
-                    # Update counts: new last range starts at i+1 and has 0 currently
+                # Determine split point
+                last_start = (splits[-1] + 1) if splits else 1
+                split_key = i if autosplit_where == "current" else (last_start + i) // 2
+                # Only split if strictly increasing
+                if not splits or split_key > splits[-1]:
+                    splits.append(split_key)
                     counts.append(0)
-                    # Note: counts for previous last range remain as-is (covers <= i)
 
         if i in checkpoint_set:
             pct = int(round(100 * i / n_keys))
             out.append((pct, counts.copy(), splits.copy()))
+
+    return out
+
+
+def simulate_progress_range_autosplit_with_nodes(
+    n_keys: int,
+    initial_splits: List[int],
+    steps: int = 5,
+    threshold: float = 0.4,
+    autosplit_where: str = "current",
+    nodes: int = 0,
+    rebalance_after_split: bool = False,
+) -> List[Tuple[int, List[int], List[int], List[int]]]:
+    """
+    Auto-split progression with range-to-node mapping and optional rebalance.
+    - Maintains counts per range and per node.
+    - On split of the last range:
+        * left subrange keeps its node
+        * right subrange goes to either the same node or to the least-loaded node if rebalance_after_split is True
+    Returns a list of (percent, counts_per_range, splits, counts_per_node).
+    """
+    if threshold <= 0 or threshold >= 1:
+        raise ValueError("threshold must be between 0 and 1 (e.g., 0.4)")
+    if nodes <= 0:
+        nodes = 0
+
+    splits = list(initial_splits)
+    counts: List[int] = [0] * (len(splits) + 1)
+    node_counts: List[int] = [0] * nodes if nodes > 0 else []
+    # range -> node mapping
+    range_nodes: List[int] = []
+    if nodes > 0:
+        # Round-robin initial assignment across existing ranges
+        rngs = len(splits) + 1
+        range_nodes = [(i % nodes) for i in range(rngs)]
+    out: List[Tuple[int, List[int], List[int], List[int]]] = []
+
+    checkpoints = [max(1, (n_keys * frac) // steps) for frac in range(1, steps + 1)]
+    checkpoint_set = set(checkpoints)
+
+    for i in range(1, n_keys + 1):
+        idx = assign_range(i, splits)
+        # ensure structure sizes match
+        if len(counts) != len(splits) + 1:
+            counts = counts + [0] * (len(splits) + 1 - len(counts))
+        if nodes > 0 and len(range_nodes) != len(splits) + 1:
+            # extend mapping for new range(s)
+            range_nodes += [range_nodes[-1] if range_nodes else 0] * ((len(splits) + 1) - len(range_nodes))
+
+        counts[idx] += 1
+        if nodes > 0:
+            node = range_nodes[idx]
+            node_counts[node] += 1
+
+        last_idx = len(splits)
+        total_so_far = i
+        if idx == last_idx and total_so_far > 1:
+            if counts[last_idx] / total_so_far > threshold:
+                last_start = (splits[-1] + 1) if splits else 1
+                split_key = i if autosplit_where == "current" else (last_start + i) // 2
+                if not splits or split_key > splits[-1]:
+                    # perform split
+                    splits.append(split_key)
+                    counts.append(0)
+                    if nodes > 0:
+                        # left stays on current node
+                        left_node = range_nodes[last_idx] if range_nodes else 0
+                        # right node choice
+                        if rebalance_after_split:
+                            # least loaded node by node_counts
+                            target = min(range(nodes), key=lambda n: node_counts[n]) if nodes > 0 else left_node
+                        else:
+                            target = left_node
+                        range_nodes.append(target)
+                        # Note: we do not reassign old ranges or retroactively move counts
+
+        if i in checkpoint_set:
+            pct = int(round(100 * i / n_keys))
+            out.append((pct, counts.copy(), splits.copy(), node_counts.copy() if nodes > 0 else []))
 
     return out
 
@@ -244,7 +322,10 @@ def main():
     ap.add_argument("--compare", action="store_true", help="Show both strategies side by side")
     ap.add_argument("--auto-split", action="store_true", help="Enable dynamic auto-splitting for range sharding during sequential ingest progression")
     ap.add_argument("--autosplit-threshold", type=float, default=0.4, help="Fraction of inserted keys in the last range that triggers a split (0<val<1), default 0.4")
+    ap.add_argument("--autosplit-where", choices=["current", "middle"], default="current", help="Where to split the last range when threshold is hit: at current key or middle of last range")
     ap.add_argument("--salt-buckets", type=int, default=0, help="When >0 and strategy=range: simulate salted keys with this many buckets; reports per-range and per-bucket distributions")
+    ap.add_argument("--nodes", type=int, default=0, help="When >0 and using range+auto-split: number of nodes to show per-node load distribution")
+    ap.add_argument("--rebalance-after-split", action="store_true", help="When using range+auto-split with nodes>0: assign the new right range to the least loaded node")
     ap.add_argument("--progress-steps", type=int, default=5, help="Steps to show for sequential ingest progression")
     args = ap.parse_args()
 
@@ -263,9 +344,19 @@ def main():
 
             # Ingest progression (sequential only)
             if strat == "range" and args.auto_split:
-                prog2 = simulate_progress_range_autosplit(args.n_keys, splits, steps=args.progress_steps, threshold=args.autosplit_threshold)
-                for pct, counts, sp in prog2:
-                    print_hist(f"Sequential ingest progression (auto-split): {pct}% of keys | splits={sp}", counts, label="range")
+                if args.nodes and args.nodes > 0:
+                    prog2n = simulate_progress_range_autosplit_with_nodes(
+                        args.n_keys, splits, steps=args.progress_steps,
+                        threshold=args.autosplit_threshold, autosplit_where=args.autosplit_where,
+                        nodes=args.nodes, rebalance_after_split=args.rebalance_after_split,
+                    )
+                    for pct, counts, sp, nodec in prog2n:
+                        print_hist(f"Sequential ingest progression (auto-split): {pct}% of keys | splits={sp}", counts, label="range")
+                        print_hist(f"Per-node load (nodes={args.nodes})", nodec, label="node")
+                else:
+                    prog2 = simulate_progress_range_autosplit(args.n_keys, splits, steps=args.progress_steps, threshold=args.autosplit_threshold, autosplit_where=args.autosplit_where)
+                    for pct, counts, sp in prog2:
+                        print_hist(f"Sequential ingest progression (auto-split): {pct}% of keys | splits={sp}", counts, label="range")
             else:
                 prog = simulate_progress(strat, args.shards, args.n_keys, splits if strat == "range" else None, steps=args.progress_steps)
                 for pct, counts in prog:
@@ -294,9 +385,19 @@ def main():
                 print_hist(f"Salted range progression: {pct}% of keys (per-range)", pr, label="range")
                 print_hist(f"Salted range progression: {pct}% of keys (per-bucket)", pb, label="bucket")
         elif args.auto_split:
-            prog2 = simulate_progress_range_autosplit(args.n_keys, splits, steps=args.progress_steps, threshold=args.autosplit_threshold)
-            for pct, counts, sp in prog2:
-                print_hist(f"Sequential ingest progression (auto-split): {pct}% of keys | splits={sp}", counts, label="range")
+            if args.nodes and args.nodes > 0:
+                prog2n = simulate_progress_range_autosplit_with_nodes(
+                    args.n_keys, splits, steps=args.progress_steps,
+                    threshold=args.autosplit_threshold, autosplit_where=args.autosplit_where,
+                    nodes=args.nodes, rebalance_after_split=args.rebalance_after_split,
+                )
+                for pct, counts, sp, nodec in prog2n:
+                    print_hist(f"Sequential ingest progression (auto-split): {pct}% of keys | splits={sp}", counts, label="range")
+                    print_hist(f"Per-node load (nodes={args.nodes})", nodec, label="node")
+            else:
+                prog2 = simulate_progress_range_autosplit(args.n_keys, splits, steps=args.progress_steps, threshold=args.autosplit_threshold, autosplit_where=args.autosplit_where)
+                for pct, counts, sp in prog2:
+                    print_hist(f"Sequential ingest progression (auto-split): {pct}% of keys | splits={sp}", counts, label="range")
         else:
             prog = simulate_progress(args.strategy, args.shards, args.n_keys, splits, steps=args.progress_steps)
             for pct, counts in prog:

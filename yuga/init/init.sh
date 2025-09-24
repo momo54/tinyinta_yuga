@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Parameters with defaults
-USERS=${USERS:-5}
+USERS=${USERS:-100}
 POSTS_PER_USER=${POSTS_PER_USER:-10}
-FOLLOW_NEXT=${FOLLOW_NEXT:-2}
+FOLLOW_NEXT=${FOLLOW_NEXT:-20}
 
 HOST=${HOST:-yb-tserver-1}
 PORT=${PORT:-5433}

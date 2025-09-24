@@ -66,6 +66,32 @@ ORDER BY likes DESC
 LIMIT 10;
 ```
 
+## Explain plans (CockroachDB)
+
+Run logical, physical and runtime execution plans for the feed query:
+
+```sh
+# EXPLAIN (logical plan with estimates)
+docker compose exec cockroach1 cockroach sql --insecure --host=cockroach1 -e \
+  "SET DATABASE=tinyinsta; EXPLAIN SELECT p.* FROM posts p JOIN follows f ON f.followee_id = p.author_id WHERE f.follower_id = 1 ORDER BY p.created_at DESC LIMIT 20;"
+
+# EXPLAIN ANALYZE (executes the query and shows per-operator stats)
+docker compose exec cockroach1 cockroach sql --insecure --host=cockroach1 -e \
+  "SET DATABASE=tinyinsta; EXPLAIN ANALYZE SELECT p.* FROM posts p JOIN follows f ON f.followee_id = p.author_id WHERE f.follower_id = 1 ORDER BY p.created_at DESC LIMIT 20;"
+
+# EXPLAIN (VEC) shows the vectorized physical operators (batch engine)
+docker compose exec cockroach1 cockroach sql --insecure --host=cockroach1 -e \
+  "SET DATABASE=tinyinsta; EXPLAIN (VEC) SELECT p.* FROM posts p JOIN follows f ON f.followee_id = p.author_id WHERE f.follower_id = 1 ORDER BY p.created_at DESC LIMIT 20;"
+
+# EXPLAIN (DISTSQL) highlights the distributed flow across nodes
+docker compose exec cockroach1 cockroach sql --insecure --host=cockroach1 -e \
+  "SET DATABASE=tinyinsta; EXPLAIN (DISTSQL) SELECT p.* FROM posts p JOIN follows f ON f.followee_id = p.author_id WHERE f.follower_id = 1 ORDER BY p.created_at DESC LIMIT 20;"
+```
+
+Tips:
+- Use the Web UI (Statements / Transactions) to view historical statements, plans, and execution stats.
+- Correlate with range layout: `SHOW RANGES FROM TABLE posts;` and `SHOW RANGES FROM INDEX likes@primary;`.
+
 Inspect ranges (examples):
 ```sql
 -- SHOW RANGES FROM TABLE posts;
